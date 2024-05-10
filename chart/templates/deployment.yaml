@@ -158,6 +158,7 @@ spec:
             - name: REGISTRY_STORAGE_DELETE_ENABLED
               value: "true"
 {{- end }}
+
           volumeMounts:
 {{- if .Values.secrets.htpasswd }}
             - name: auth
@@ -178,6 +179,118 @@ spec:
 {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
 {{- end }}
+
+{{- if .Values.cron.enabled }}
+        - name: {{ .Chart.Name }}-gc
+          image: "{{ .Values.imageGC.repository }}:{{ .Values.imageGC.tag }}"
+          imagePullPolicy: {{ .Values.imageGC.pullPolicy }}
+          env:
+            - name: CRON
+              value: {{ .Values.cron.schedule }}
+{{- if .Values.secrets.htpasswd }}
+            - name: REGISTRY_AUTH
+              value: "htpasswd"
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: "Registry Realm"
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: "/auth/htpasswd"
+{{- end }}
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: haSharedSecret
+{{- if .Values.tlsSecretName }}
+            - name: REGISTRY_HTTP_TLS_CERTIFICATE
+              value: /etc/ssl/docker/tls.crt
+            - name: REGISTRY_HTTP_TLS_KEY
+              value: /etc/ssl/docker/tls.key
+{{- end }}
+{{- if eq .Values.storage "filesystem" }}
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: "/var/lib/registry"
+{{- else if eq .Values.storage "azure" }}
+            - name: REGISTRY_STORAGE_AZURE_ACCOUNTNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: azureAccountName
+            - name: REGISTRY_STORAGE_AZURE_ACCOUNTKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: azureAccountKey
+            - name: REGISTRY_STORAGE_AZURE_CONTAINER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: azureContainer
+{{- else if eq .Values.storage "s3" }}
+            {{- if and .Values.secrets.s3.secretKey .Values.secrets.s3.accessKey }}
+            - name: REGISTRY_STORAGE_S3_ACCESSKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: s3AccessKey
+            - name: REGISTRY_STORAGE_S3_SECRETKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: s3SecretKey
+            {{- end }}
+            - name: REGISTRY_STORAGE_S3_REGION
+              value: {{ required ".Values.s3.region is required" .Values.s3.region }}
+          {{- if .Values.s3.regionEndpoint }}
+            - name: REGISTRY_STORAGE_S3_REGIONENDPOINT
+              value: {{ .Values.s3.regionEndpoint }}
+          {{- end }}
+            - name: REGISTRY_STORAGE_S3_BUCKET
+              value: {{ required ".Values.s3.bucket is required" .Values.s3.bucket }}
+          {{- if .Values.s3.encrypt }}
+            - name: REGISTRY_STORAGE_S3_ENCRYPT
+              value: {{ .Values.s3.encrypt | quote }}
+          {{- end }}
+          {{- if .Values.s3.secure }}
+            - name: REGISTRY_STORAGE_S3_SECURE
+              value: {{ .Values.s3.secure | quote }}
+          {{- end }}
+{{- else if eq .Values.storage "swift" }}
+            - name: REGISTRY_STORAGE_SWIFT_AUTHURL
+              value: {{ required ".Values.swift.authurl is required" .Values.swift.authurl }}
+            - name: REGISTRY_STORAGE_SWIFT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: swiftUsername
+            - name: REGISTRY_STORAGE_SWIFT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ template "docker-registry.fullname" . }}-secret
+                  key: swiftPassword
+            - name: REGISTRY_STORAGE_SWIFT_CONTAINER
+              value: {{ required ".Values.swift.container is required" .Values.swift.container }}
+{{- end }}
+{{- if .Values.persistence.deleteEnabled }}
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+{{- end }}
+          volumeMounts:
+{{- if eq .Values.storage "filesystem" }}
+            - name: data
+              mountPath: /var/lib/registry/
+{{- end }}
+            - name: "{{ template "docker-registry.fullname" . }}-config"
+              mountPath: "/etc/docker/registry"
+{{- if .Values.tlsSecretName }}
+            - mountPath: /etc/ssl/docker
+              name: tls-cert
+              readOnly: true
+{{- end }}
+{{- with .Values.extraVolumeMounts }}
+              {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- end }}
+
 {{- if .Values.nodeSelector }}
       nodeSelector:
 {{ toYaml .Values.nodeSelector | indent 8 }}

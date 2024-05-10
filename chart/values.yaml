@@ -14,10 +14,24 @@ podLabels: {}
 
 image:
   repository: registry
-  tag: 2.7.1
+  tag: 2.8.3
   pullPolicy: IfNotPresent
 # imagePullSecrets:
     # - name: docker
+
+imageGC:
+  repository: ghcr.io/neuro-inc/docker-registry-gc
+  tag: 0.0.1
+  pullPolicy: IfNotPresent
+# imagePullSecrets:
+  # - name: docker
+
+cron:
+  enabled: true
+  schedule: "0 4 * * * /bin/registry garbage-collect --delete-untagged=true /etc/docker/registry/config.yml"
+  CRON_UID: 1000
+  CRON_GID: 0
+
 service:
   name: registry
   type: ClusterIP
@@ -58,7 +72,7 @@ persistence:
   accessMode: 'ReadWriteOnce'
   enabled: false
   size: 10Gi
-  # storageClass: '-'
+  storageClass: openebs-hostpath
 
 # set the type of filesystem to use: filesystem, s3
 storage: filesystem
@@ -115,8 +129,8 @@ configData:
 
 securityContext:
   enabled: true
-  runAsUser: 1000
-  fsGroup: 1000
+  runAsUser: 0
+  fsGroup: 0
 
 priorityClassName: ""
 
