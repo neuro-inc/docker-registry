@@ -1,0 +1,17 @@
+apiVersion: v1
+entries:
+  docker-registry:
+  - apiVersion: v1
+    appVersion: 2.7.1
+    created: "2024-05-10T15:57:03.4802061+03:00"
+    description: DEPRECATED A Helm chart for Docker Registry
+    digest: 08f8b5e3387ea205913c94c54b8b8f2c35eae416273cb97a31d8d06dd312cc7a
+    home: https://hub.docker.com/_/registry/
+    icon: https://hub.docker.com/public/images/logos/mini-logo.svg
+    name: docker-registry
+    sources:
+    - https://github.com/docker/distribution-library-image
+    urls:
+    - https://neuro-inc.github.io/docker-registry/docker-registry-1.9.6.tgz
+    version: 1.9.6
+generated: "2024-05-10T15:57:03.4789471+03:00"
