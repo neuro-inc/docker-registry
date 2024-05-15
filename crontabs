@@ -1,0 +1,1 @@
+0 4 * * * /bin/registry garbage-collect --delete-untagged=true /etc/docker/registry/config.yml >> /tmp/docker-registry-gc-cron.log

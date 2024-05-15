@@ -185,8 +185,6 @@ spec:
           image: "{{ .Values.imageGC.repository }}:{{ .Values.imageGC.tag }}"
           imagePullPolicy: {{ .Values.imageGC.pullPolicy }}
           env:
-            - name: CRON
-              value: {{ .Values.cron.schedule }}
 {{- if .Values.secrets.htpasswd }}
             - name: REGISTRY_AUTH
               value: "htpasswd"

@@ -1,58 +1,94 @@
-# docker-alpine-cron
+# Run Cron as Non-root on Alpine Linux
 
-Dockerized alpine with busybox crond and useful tools.
+### Issues & Solutions
+On Alpine Linux (and other linux distributions probably) the crond process must be
+running as the root privilege, it's too harmful for security concerns, for
+further the user didn't have the root privileges to run processes on the docker
+commonly.
 
-Packages included for all images: `curl`, `wget`
+The related bug was filed as [#381](https://github.com/gliderlabs/docker-alpine/issues/381),
+on Alpine Linux the 'crond' daemon service would schedule the jobs for users,
+it was implemented in the busybox code base, as you can see the crond would call the
+function ['change_identity'](https://github.com/mirror/busybox/blob/master/miscutils/crond.c#L679)
+implemented by the syscall **setgroups** (the linux **CAP_SETGID** capability required
+commonly), to switch the job privilege into the normal user / group privilege,
+same as the job of the user, so crond process must be running as root.
 
-## Usage
+As an alternative we can set the capability bit CAP_SETGID on crond by using **setcap**,
+but on alpine linux crond is a symbolic link of **busybox**, and setcap failed with the link,
+so we should set CAP_SETGID on busybox like the dockerfile instructions below:
+```
+# install cap package and set the capabilities on busybox
+RUN apk add --update --no-cache libcap && \
+    setcap cap_setgid=ep /bin/busybox
+```
+in this workaround we set the CAP_SETGID bit on busybox slightly, but be aware of that
+busybox is implemented as the unix like utilities in a single file, it contains a lot
+of utility features, e.g. chown, adduser, etc. obviously such features (inside busybox)
+also have the capabilites to run successfully, so we could make the broader attack
+surface by accident.
 
-Example 1: Create one cron that runs as `root`
-
-```sh
-docker run -it \
-    -e CRON='* * * * * /bin/echo "hello"' \
-    theohbrothers/docker-alpine-cron:3.17
+### Notes
+1. In case running crond as the non-root user with a login shell, assuming the
+   user **dba** info in /etc/passwd:
+```
+dba:x:1000:1000:Linux User,,,:/home/dba:/bin/ash
+```
+the crontab file could be located in the default system crontab file path:
+```
+/var/spool/cron/crontabs/dba
 ```
 
-Example 2: Create two crons that run as `root`
+2. In addition, the crontab file name must be identical with the file owner,
+   and the associated uid must be identical with the effective uid.
 
-```sh
-docker run -it \
-    -e CRON='* * * * * /bin/echo "hello"\n* * * * * /bin/echo "world"' \
-    theohbrothers/docker-alpine-cron:3.17
+3. The owner id of the crontab file must be identical with the effective uid,
+   also for root.
+
+4. In case running crond as the non-root user without a login shell, assuming
+   the user **nobody** info in /etc/passwd:
+```
+nobody:x:65534:65534:nobody:/:/sbin/nologin
+```
+You must set the env variable **SHELL** (e.g. SHELL=/bin/sh) in the crontab
+file.
+
+---
+
+### Examples
+1. run crond as root as usual, schedule jobs for users 'dba' and 'nobody'
+```
+# echo "* * * * * mysql -e 'show processlist' >> /var/log/db.log" >> /var/spool/cron/crontabs/dba
+# echo "* * * * * /tmp/nobody.sh" >> /var/spool/cron/crontabs/nobody
+# crond
+
+```
+2. run crond as non-root, schedule jobs for user 'dba'
+```
+$ mkdir -p /home/dba/crontabs
+$ echo "* * * * * mysql -e 'show processlist' >> /var/log/db.log" >> /home/dba/crontabs/dba
+$ crond -c /home/dba/crontabs
 ```
 
-Example 3: Create two crons that run as UID `3000` and GID `4000`
-
-```sh
-docker run -it \
-    -e CRON='* * * * * /bin/echo "hello"\n* * * * * /bin/echo "world"' \
-    -e CRON_UID=3000 \
-    -e CRON_GID=4000 \
-    theohbrothers/docker-alpine-cron:3.17
+3. run crond as non-root, schedule jobs for user 'nobody'
 ```
+$ mkdir /tmp/crontabs
+$ cat > /tmp/crontabs/nobody << EOF
+> SHELL=/bin/sh
+> * * * * * /tmp/nobody.sh
+> EOF
+$ crond -c /tmp/crontabs
+```
+4. a sample dockerfile by using the patched alpine
+```
+FROM geekidea/alpine-cron:3.10
 
-### Environment variables
+USER nobody
+RUN mkdir /tmp/crontabs \
+    && echo 'SHELL=/bin/sh' > /tmp/crontabs/nobody \
+    && echo '* * * * * /tmp/nobody.sh' >> /tmp/crontabs/nobody \
+    && echo 'echo "$(date) blahblahblah nobody" >> /tmp/nb-cron.log' > /tmp/nobody.sh \
+    && chmod 0755 /tmp/nobody.sh
 
-| Name | Default value | Description
-|:-------:|:---------------:|:---------:|
-| `CRON` | '' | Required: The cron expression. For multiple cron expressions, use `\n`. Use [crontab.guru](https://crontab.guru/) to customize crons. This will be set as the content of the crontab at `/etc/crontabs/$CRON_USER`
-| `CRON_UID` | `0` | Optional: The UID of the user that the cron should run under. Default is `0` which is `root`
-| `CRON_GID` | `0` | Optional: The GID of the user that the cron should run under. Default is `0` which is `root`
-
-### Entrypoint: `docker-entrypoint.sh`
-
-1. A `/etc/environment` file is created at the beginning of the entrypoint script, which makes environment variables available to everyone, including crond.
-1. A user of `CRON_UID` is created if it does not exist.
-1. A group of `CRON_GID` is created if it does not exist.
-1. The user of `CRON_UID` is added to the group of `CRON_GID` if membership does not exist.
-1. Crontab is created in `/etc/crontabs/<CRON_USER>`
-
-### Secrets
-
-Since a `/etc/environment` file is created automatically to make environment variables available to every cron, any sensitive environment variables will get written to the disk. To avoid that:
-
-1. Add [shell functions like this](https://github.com/startersclan/docker-hlstatsxce-daemon/blob/v1.6.19/variants/alpine/cron/docker-entrypoint.sh#L7-L58) at the beginning of your cron-called script
-1. Optional: Specify the secrets folder by using environment variable `ENV_SECRETS_DIR`. By default, its value is `/run/secrets`
-1. Declare environment variables using syntax `MY_ENV_VAR=DOCKER-SECRET:my_docker_secret_name`, where `my_docker_secret_name` is the secret mounted on `$ENV_SECRETS_DIR/my_docker_secret_name`
-1. When the cron script is run, the env var `MY_ENV_VAR` gets populated with the contents of the secret file `$ENV_SECRETS_DIR/my_docker_secret_name`
+CMD ["crond", "-c", "/tmp/crontabs", "-l", "0", "-d", "0", "-f"]
+```
