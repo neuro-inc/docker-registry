@@ -30,6 +30,6 @@ RUN chmod +x /docker-entrypoint.sh
 
 USER $USER
 COPY crontabs /home/$USER/$USER
-
+WORKDIR /docker-registry
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["crond", "-c", "/home/cronuser/", "-l", "0", "-d", "0", "-f"]
